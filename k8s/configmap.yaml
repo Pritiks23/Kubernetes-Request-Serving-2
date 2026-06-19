@@ -1,1 +1,14 @@
-
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vllm-config
+  namespace: inference
+data:
+  MODEL_ID: "facebook/opt-125m"
+  # No HF token needed — fully public model
+  # Swap for any public model: facebook/opt-350m, TinyLlama/TinyLlama-1.1B-Chat-v1.0
+  TENSOR_PARALLEL_SIZE: "1"
+  MAX_MODEL_LEN: "512"
+  GPU_MEMORY_UTILIZATION: "0.50"
+  HOST: "0.0.0.0"
+  PORT: "8000"
