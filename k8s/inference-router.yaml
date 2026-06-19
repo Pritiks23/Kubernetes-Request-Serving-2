@@ -1,1 +1,74 @@
-
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inference-router
+  namespace: inference
+  labels:
+    app: inference-router
+    tier: routing
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: inference-router
+  template:
+    metadata:
+      labels:
+        app: inference-router
+        tier: routing
+    spec:
+      containers:
+        - name: router
+          # nginx as a lightweight router/load balancer
+          image: nginx:alpine
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/conf.d
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "200m"
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: router-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: router-config
+  namespace: inference
+data:
+  default.conf: |
+    upstream vllm_backend {
+      server vllm-service:8000;
+    }
+    server {
+      listen 80;
+      location /v1 {
+        proxy_pass http://vllm_backend;
+        proxy_read_timeout 300s;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+      }
+      location /health {
+        proxy_pass http://vllm_backend/health;
+      }
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inference-router-service
+  namespace: inference
+spec:
+  selector:
+    app: inference-router
+  ports:
+    - port: 80
+      targetPort: 80
