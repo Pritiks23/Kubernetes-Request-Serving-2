@@ -1,1 +1,64 @@
-
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm
+  namespace: inference
+  labels:
+    app: vllm
+    tier: inference
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm
+  template:
+    metadata:
+      labels:
+        app: vllm
+        tier: inference
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: vllm
+          # CPU-only image — works in Codespaces with no GPU
+          image: vllm/vllm-openai:latest
+          command:
+            - python
+            - -m
+            - vllm.entrypoints.openai.api_server
+          args:
+            - --model=$(MODEL_ID)
+            - --max-model-len=$(MAX_MODEL_LEN)
+            - --host=$(HOST)
+            - --port=$(PORT)
+            - --device=cpu
+            # --device=cpu lets vLLM run without a GPU (slower but works in Codespaces)
+          envFrom:
+            - configMapRef:
+                name: vllm-config
+          ports:
+            - name: http
+              containerPort: 8000
+          resources:
+            requests:
+              memory: "2Gi"
+              cpu: "2"
+            limits:
+              memory: "4Gi"
+              cpu: "4"
+          readinessProbe:
+            httpGet:
+              path: /v1/models
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 20
