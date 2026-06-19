@@ -1,1 +1,15 @@
-
+{
+  "name": "GPU Inference Platform",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-22.04",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+  "forwardPorts": [8000, 3000, 9090],
+  "portsAttributes": {
+    "8000": { "label": "vLLM API" },
+    "3000": { "label": "Grafana" },
+    "9090": { "label": "Prometheus" }
+  },
+  "postCreateCommand": "bash scripts/install-k3s.sh",
+  "remoteUser": "root"
+}
