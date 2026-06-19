@@ -1,58 +1,51 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-export KUBECONFIG=~/.kube/config
-GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
-info() { echo -e "${GREEN}[deploy]${NC} $*"; }
-warn() { echo -e "${YELLOW}[deploy]${NC} $*"; }
-die()  { echo -e "${RED}[deploy]${NC} $*" >&2; exit 1; }
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+K8S_DIR="$SCRIPT_DIR/../k8s"
 
-kubectl cluster-info &>/dev/null || die "Cannot reach cluster — run: make install"
+# Ensure kubeconfig is set (k3s writes here)
+export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/config}"
 
-info "Creating namespaces..."
-kubectl apply -f k8s/namespace.yaml
+echo "==> Creating namespaces..."
+kubectl apply -f "$K8S_DIR/namespace.yaml"
 
-info "Applying RBAC..."
-kubectl apply -f k8s/rbac/prometheus-rbac.yaml
+echo "==> Applying ConfigMap..."
+kubectl apply -f "$K8S_DIR/configmap.yaml"
 
-info "Applying vLLM config..."
-kubectl apply -f k8s/configmap.yaml
+echo "==> Applying RBAC for Prometheus..."
+kubectl apply -f "$K8S_DIR/rbac/prometheus-rbac.yaml"
 
-info "Deploying vLLM..."
-kubectl apply -f k8s/vllm-deployment.yaml
-kubectl apply -f k8s/vllm-service.yaml
+echo "==> Deploying vLLM..."
+kubectl apply -f "$K8S_DIR/vllm-deployment.yaml"
+kubectl apply -f "$K8S_DIR/vllm-service.yaml"
 
-info "Deploying inference router..."
-kubectl apply -f k8s/inference-router.yaml
+echo "==> Deploying inference router..."
+kubectl apply -f "$K8S_DIR/inference-router.yaml"
 
-info "Deploying API gateway..."
-kubectl apply -f k8s/api-gateway.yaml
+echo "==> Deploying API gateway..."
+kubectl apply -f "$K8S_DIR/api-gateway.yaml"
 
-info "Deploying monitoring stack..."
-kubectl apply -f k8s/monitoring/
+echo "==> Deploying monitoring stack..."
+kubectl apply -f "$K8S_DIR/monitoring/prometheus.yaml"
+kubectl apply -f "$K8S_DIR/monitoring/grafana.yaml"
 
-info "Waiting for vLLM (downloads ~250MB model on first run — ~2 min)..."
-kubectl rollout status deployment/vllm -n inference --timeout=300s || {
-  warn "vLLM timed out. Logs:"
-  kubectl logs -n inference -l app=vllm --tail=20 || true
-  die "Deploy failed — check logs above"
-}
+echo "==> Waiting for vLLM rollout (this may take a few minutes while the model downloads)..."
+kubectl rollout status deployment/vllm -n inference --timeout=600s
 
-info "Waiting for Prometheus..."
+echo "==> Waiting for inference-router rollout..."
+kubectl rollout status deployment/inference-router -n inference --timeout=120s
+
+echo "==> Waiting for api-gateway rollout..."
+kubectl rollout status deployment/api-gateway -n inference --timeout=120s
+
+echo "==> Waiting for Prometheus rollout..."
 kubectl rollout status deployment/prometheus -n monitoring --timeout=120s
 
-info "Waiting for Grafana..."
+echo "==> Waiting for Grafana rollout..."
 kubectl rollout status deployment/grafana -n monitoring --timeout=120s
 
 echo ""
-info "Everything is running!"
-info ""
-info "Next step:  make smoke-test"
-info ""
-info "Port-forwards:"
-info "  make port-forward"
-info ""
-info "Or manually:"
-info "  kubectl port-forward svc/vllm-service  -n inference  8000:8000"
-info "  kubectl port-forward svc/grafana       -n monitoring 3000:3000"
-info "  kubectl port-forward svc/prometheus    -n monitoring 9090:9090"
+echo "==> All deployments are ready!"
+echo "    Run: make smoke-test"
+echo "    Run: make port-forward  (then open the forwarded ports in Codespaces)"
