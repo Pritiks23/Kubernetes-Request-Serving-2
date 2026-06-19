@@ -5,7 +5,6 @@ metadata:
   namespace: inference
   labels:
     app: vllm
-    tier: inference
 spec:
   replicas: 1
   selector:
@@ -15,50 +14,63 @@ spec:
     metadata:
       labels:
         app: vllm
-        tier: inference
-      annotations:
-        prometheus.io/scrape: "true"
-        prometheus.io/port: "8000"
-        prometheus.io/path: "/metrics"
     spec:
       containers:
         - name: vllm
-          # CPU-only image — works in Codespaces with no GPU
           image: vllm/vllm-openai:latest
-          command:
-            - python
-            - -m
-            - vllm.entrypoints.openai.api_server
           args:
-            - --model=$(MODEL_ID)
-            - --max-model-len=$(MAX_MODEL_LEN)
-            - --host=$(HOST)
-            - --port=$(PORT)
-            - --device=cpu
-            # --device=cpu lets vLLM run without a GPU (slower but works in Codespaces)
-          envFrom:
-            - configMapRef:
-                name: vllm-config
+            - "--model"
+            - "$(MODEL_ID)"
+            - "--device"
+            - "cpu"
+            - "--port"
+            - "8000"
+            - "--dtype"
+            - "float32"
+            - "--max-model-len"
+            - "512"
+          env:
+            - name: MODEL_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: vllm-config
+                  key: MODEL_ID
+            # Tell Hugging Face to cache weights inside the container
+            - name: HF_HOME
+              value: /tmp/hf-cache
+            # Disable tokenizer parallelism warnings on CPU
+            - name: TOKENIZERS_PARALLELISM
+              value: "false"
           ports:
             - name: http
               containerPort: 8000
+              protocol: TCP
           resources:
             requests:
-              memory: "2Gi"
-              cpu: "2"
+              cpu: "1"
+              memory: "3Gi"
             limits:
-              memory: "4Gi"
-              cpu: "4"
+              cpu: "2"
+              memory: "5Gi"
           readinessProbe:
             httpGet:
-              path: /v1/models
+              path: /health
               port: 8000
-            initialDelaySeconds: 30
-            periodSeconds: 10
-            failureThreshold: 30
+            # Model download + load takes a while on first run
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            failureThreshold: 20
           livenessProbe:
             httpGet:
               path: /health
               port: 8000
-            initialDelaySeconds: 60
-            periodSeconds: 20
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            failureThreshold: 5
+          volumeMounts:
+            - name: hf-cache
+              mountPath: /tmp/hf-cache
+      volumes:
+        - name: hf-cache
+          emptyDir:
+            sizeLimit: 2Gi
