@@ -1,29 +1,32 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-GREEN='\033[0;32m'; NC='\033[0m'
-info() { echo -e "${GREEN}[setup]${NC} $*"; }
+echo "==> Installing k3s..."
 
-# ── install k3s and helm in parallel ─────────────────────────────────────────
-info "Installing k3s + Helm in parallel..."
+# Install k3s without Traefik (we use nginx), disable ServiceLB (not needed in Codespaces)
+# --disable traefik        : we bring our own ingress/gateway
+# --disable servicelb      : no cloud load balancer in Codespaces
+# --write-kubeconfig-mode  : make kubeconfig world-readable so non-root works
+curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server \
+  --disable traefik \
+  --disable servicelb \
+  --write-kubeconfig-mode 644" sh -
 
-curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--disable=traefik --disable=servicelb --disable=metrics-server" sh - &
-K3S_PID=$!
+echo "==> Waiting for k3s to start..."
+sleep 5
+until k3s kubectl get nodes 2>/dev/null | grep -q "Ready"; do
+  echo "  ... node not ready yet, retrying in 3s"
+  sleep 3
+done
+echo "==> k3s node is Ready"
 
-curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash &
-HELM_PID=$!
+echo "==> Setting up kubeconfig at ~/.kube/config..."
+mkdir -p "$HOME/.kube"
+ln -sf /etc/rancher/k3s/k3s.yaml "$HOME/.kube/config"
+chmod 600 "$HOME/.kube/config"
 
-wait $K3S_PID && info "k3s installed"
-wait $HELM_PID && info "Helm installed"
+echo "==> Installing Helm..."
+curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
-# ── configure kubectl ─────────────────────────────────────────────────────────
-mkdir -p ~/.kube
-k3s kubectl config view --raw > ~/.kube/config
-chmod 600 ~/.kube/config
-export KUBECONFIG=~/.kube/config
-echo 'export KUBECONFIG=~/.kube/config' >> ~/.bashrc
-
-# ── wait for node ready (no fixed sleep) ─────────────────────────────────────
-info "Waiting for node to be Ready..."
-until kubectl get nodes 2>/dev/null | grep -q " Ready"; do sleep 1; done
-info "Node ready. Run: make deploy"
+echo "==> k3s and Helm installation complete."
+echo "    Run: make deploy"
